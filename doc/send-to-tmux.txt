@@ -98,12 +98,40 @@ KEYMAPS                                               *send-to-tmux-keymaps*
 
 You can set up key mappings for convenience:
 
+Manual Key Bindings:
 >lua
-    -- Example key mappings
-    vim.keymap.set("n", "<leader>st", ":SendToTmuxSelectTarget<CR>")
-    vim.keymap.set("n", "<leader>ss", ":SendToTmux<CR>")
-    vim.keymap.set("v", "<leader>ss", ":SendToTmux<CR>")
+    -- Normal mode: send current line
+    vim.keymap.set("n", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send current line to tmux" })
+    
+    -- Visual mode: send selected text  
+    vim.keymap.set("v", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send selected text to tmux" })
+    
+    -- Select target
+    vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Select tmux target" })
 <
+
+Using lazy.nvim:
+>lua
+    {
+      "fingergohappy/send-to-tmux.nvim",
+      event = "VeryLazy",
+      cmd = { "SendToTmuxSelectTarget", "SendToTmux" },
+      opts = {},
+      keys = {
+        -- Send text in both normal and visual mode
+        { "<leader>t", mode = { "n", "v" }, "<cmd>SendToTmux<cr>", desc = "Send to tmux" },
+        -- Select target
+        { "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", desc = "Select tmux target" },
+      },
+    }
+<
+
+Important Notes:
+1. The `SendToTmux` command works in both normal and visual modes, but key bindings
+   need to be set for each mode separately when using manual mappings.
+2. When using lazy.nvim's `keys` specification, you can use `mode = { "n", "v" }`
+   to bind the same key in multiple modes.
+3. Make sure your leader key is set: `vim.g.mapleader = " "`
 
 TROUBLESHOOTING                               *send-to-tmux-troubleshooting*
 

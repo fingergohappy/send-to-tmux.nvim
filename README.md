@@ -70,6 +70,8 @@ Example:
 
 ## Configuration
 
+### Basic Setup
+
 You can optionally configure a default target:
 
 ```lua
@@ -77,6 +79,51 @@ require("send_to_tmux").setup({
   default_target = "0:1.0",  -- Optional default tmux target
 })
 ```
+
+### Key Bindings
+
+#### Using lazy.nvim
+
+```lua
+{
+  "fingergohappy/send-to-tmux.nvim",
+  event = "VeryLazy",
+  cmd = { "SendToTmuxSelectTarget", "SendToTmux" },
+  opts = {},
+  keys = {
+    -- Send text in both normal and visual mode
+    { "<leader>t", mode = { "n", "v" }, "<cmd>SendToTmux<cr>", desc = "Send to tmux" },
+    -- Select target
+    { "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", desc = "Select tmux target" },
+  },
+}
+```
+
+#### Manual Key Bindings
+
+```lua
+-- Normal mode: send current line
+vim.keymap.set("n", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send current line to tmux" })
+
+-- Visual mode: send selected text  
+vim.keymap.set("v", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send selected text to tmux" })
+
+-- Select target
+vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Select tmux target" })
+```
+
+#### Important Notes
+
+1. **Mode Specification**: The `SendToTmux` command works in both normal and visual modes, but key bindings need to be set for each mode separately.
+
+2. **Leader Key**: Make sure your leader key is set:
+   ```lua
+   vim.g.mapleader = " "  -- Space as leader key
+   ```
+
+3. **Command Availability**: The plugin registers these commands:
+   - `:SendToTmuxSelectTarget` - Select tmux target
+   - `:SendToTmux` - Send text to selected target
 
 ## Requirements
 
