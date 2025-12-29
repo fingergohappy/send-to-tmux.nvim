@@ -1,0 +1,139 @@
+*send-to-tmux.txt*     For Neovim >= 0.8.0    Last change: 2025 December 21
+
+==============================================================================
+Table of Contents                                *send-to-tmux-table-of-contents*
+
+1. send-to-tmux                                           |send-to-tmux-intro|
+  - Installation                                   |send-to-tmux-installation|
+  - Usage                                                 |send-to-tmux-usage|
+  - Commands                                           |send-to-tmux-commands|
+  - Configuration                                 |send-to-tmux-configuration|
+  - Keymaps                                           |send-to-tmux-keymaps|
+  - Troubleshooting                               |send-to-tmux-troubleshooting|
+  - FAQ                                                     |send-to-tmux-faq|
+
+==============================================================================
+1. send-to-tmux                                           *send-to-tmux-intro*
+
+A Neovim plugin for sending text content to tmux panes.
+
+This plugin allows you to select a tmux target (session:window.pane) and send
+the current line or visual selection to that tmux pane.
+
+INSTALLATION                                       *send-to-tmux-installation*
+
+Using lazy.nvim:
+>lua
+    {
+      "fingerfrings/send-to-tmux.nvim",
+      config = function()
+        require("send_to_tmux").setup()
+      end,
+    }
+<
+
+Using packer.nvim:
+>lua
+    use {
+      "fingerfrings/send-to-tmux.nvim",
+      config = function()
+        require("send_to_tmux").setup()
+      end,
+    }
+<
+
+USAGE                                                     *send-to-tmux-usage*
+
+1. Select a tmux target using `:SendToTmuxSelectTarget`
+2. Send text to the target using `:SendToTmux`
+
+The plugin will send either:
+- The current line (in normal mode)
+- The selected text (in visual mode)
+
+COMMANDS                                               *send-to-tmux-commands*
+
+                                                     *:SendToTmuxSelectTarget*
+:SendToTmuxSelectTarget [target]
+    Select tmux target to send text to. The target should be a valid tmux
+    target format (e.g., "0:3.1" for session 0, window 3, pane 1).
+
+    If no target is provided, you will be prompted to enter one.
+
+    Example:
+>vim
+    :SendToTmuxSelectTarget 0:1.0
+<
+
+                                                              *:SendToTmux*
+:SendToTmux
+    Send the current line or visual selection to the previously selected
+    tmux target.
+
+    Requirements:
+    - A target must be selected first using `:SendToTmuxSelectTarget`
+    - The current line or selection must have content
+    - The target must exist
+
+    Example:
+>vim
+    " In normal mode, sends current line
+    :SendToTmux
+
+    " In visual mode, sends selected text
+    :'<,'>SendToTmux
+<
+
+CONFIGURATION                                     *send-to-tmux-configuration*
+
+You can optionally configure a default target:
+
+>lua
+    require("send_to_tmux").setup({
+      default_target = "0:1.0",  -- Optional default tmux target
+    })
+<
+
+KEYMAPS                                               *send-to-tmux-keymaps*
+
+You can set up key mappings for convenience:
+
+>lua
+    -- Example key mappings
+    vim.keymap.set("n", "<leader>st", ":SendToTmuxSelectTarget<CR>")
+    vim.keymap.set("n", "<leader>ss", ":SendToTmux<CR>")
+    vim.keymap.set("v", "<leader>ss", ":SendToTmux<CR>")
+<
+
+TROUBLESHOOTING                               *send-to-tmux-troubleshooting*
+
+Common issues and solutions:
+
+1. "tmux is not installed" error
+   - Install tmux: `brew install tmux` (macOS) or `apt install tmux` (Ubuntu)
+
+2. "Target does not exist" error
+   - Check if the tmux session/window/pane exists
+   - Verify with: `tmux list-panes -a`
+   - List tmux targets: `tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"`
+
+4. "No target selected" error
+   - First select a target using `:SendToTmuxSelectTarget`
+
+FAQ                                                     *send-to-tmux-faq*
+
+Q: How do I find my tmux target?
+A: Run: `tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"`
+
+Q: Can I send to multiple tmux panes?
+A: Currently, only one target can be selected at a time. You can change targets
+   as needed.
+
+Q: Does it work with tmux sessions in detached mode?
+A: Yes, as long as the session exists.
+
+Q: What happens if I send text to a pane that's running a program?
+A: The text will be sent as keyboard input to that pane, just like typing.
+
+==============================================================================
+vim:tw=78:ts=8:noet:ft=help:norl:

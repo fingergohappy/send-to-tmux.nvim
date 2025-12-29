@@ -1,47 +1,103 @@
-# A Neovim Plugin Template
+# send-to-tmux.nvim
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/ellisonleao/nvim-plugin-template/lint-test.yml?branch=main&style=for-the-badge)
-![Lua](https://img.shields.io/badge/Made%20with%20Lua-blueviolet.svg?style=for-the-badge&logo=lua)
+A Neovim plugin for sending text content to tmux panes.
 
-A template repository for Neovim plugins.
+一个 Neovim 插件，用于发送内容到 tmux
 
-## Using it
+## Features
 
-Via `gh`:
+- Select tmux target (session:window.pane)
+- Send current line or visual selection to tmux pane
+- Validates tmux installation and target existence
+- Simple and intuitive commands
 
+## Installation
+
+Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{
+  "fingerfrings/send-to-tmux.nvim",
+  config = function()
+    require("send_to_tmux").setup()
+  end,
+}
 ```
-$ gh repo create my-plugin -p ellisonleao/nvim-plugin-template
+
+Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
+
+```lua
+use {
+  "fingerfrings/send-to-tmux.nvim",
+  config = function()
+    require("send_to_tmux").setup()
+  end,
+}
 ```
 
-Via github web page:
+## Usage
 
-Click on `Use this template`
+### Commands
 
-![](https://docs.github.com/assets/cb-36544/images/help/repository/use-this-template-button.png)
+**`:SendToTmuxSelectTarget [target]`**
 
-## Features and structure
+Select tmux target to send text to. The target format is: `session:window.pane` (e.g., "0:3.1" for session 0, window 3, pane 1)
 
-- 100% Lua
-- Github actions for:
-  - running tests using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) and [busted](https://olivinelabs.com/busted/)
-  - check for formatting errors (Stylua)
-  - vimdocs autogeneration from README.md file
-  - luarocks release (LUAROCKS_API_KEY secret configuration required)
-
-### Plugin structure
-
+Example:
+```vim
+:SendToTmuxSelectTarget 0:1.0
 ```
-.
-├── lua
-│   ├── plugin_name
-│   │   └── module.lua
-│   └── plugin_name.lua
-├── Makefile
-├── plugin
-│   └── plugin_name.lua
-├── README.md
-├── tests
-│   ├── minimal_init.lua
-│   └── plugin_name
-│       └── plugin_name_spec.lua
+
+If no target is provided, you will be prompted to enter one.
+
+**`:SendToTmux`**
+
+Send the current line or visual selection to the previously selected tmux target.
+
+Example:
+```vim
+" In normal mode, sends current line
+:SendToTmux
+
+" In visual mode, sends selected text
+:'<,'>SendToTmux
 ```
+
+### Workflow
+
+1. Select a tmux target using `:SendToTmuxSelectTarget`
+2. Send text to the target using `:SendToTmux` (in normal or visual mode)
+
+## Configuration
+
+You can optionally configure a default target:
+
+```lua
+require("send_to_tmux").setup({
+  default_target = "0:1.0",  -- Optional default tmux target
+})
+```
+
+## Requirements
+
+- Neovim >= 0.8.0
+- tmux
+
+## How It Works
+
+**SendToTmuxSelectTarget**:
+- Checks if tmux is installed
+- Validates target format
+- Checks if target exists
+- Saves target in plugin state
+
+**SendToTmux**:
+1. Checks if tmux is installed
+2. Checks if target is set (if not, shows error)
+3. Checks if current line/selection has content (if not, shows error)
+4. Validates that target still exists
+5. Sends the selected content or current line to the tmux pane using `tmux send-keys`
+
+## License
+
+MIT
