@@ -17,7 +17,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "fingerfrings/send-to-tmux.nvim",
+  "fingergohappy/send-to-tmux.nvim",
   config = function()
     require("send_to_tmux").setup()
   end,
@@ -28,7 +28,7 @@ Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
 
 ```lua
 use {
-  "fingerfrings/send-to-tmux.nvim",
+  "fingergohappy/send-to-tmux.nvim",
   config = function()
     require("send_to_tmux").setup()
   end,
