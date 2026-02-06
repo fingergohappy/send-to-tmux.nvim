@@ -3,8 +3,10 @@ local tmux = require("send_to_tmux.module")
 
 ---@class Config
 ---@field default_target string|nil Default tmux target
+---@field bracketed_paste boolean Enable bracketed paste for multiline send
 local config = {
   default_target = nil,
+  bracketed_paste = true,
 }
 
 ---@class SendToTmuxModule
@@ -174,7 +176,9 @@ M.send_to_tmux = function(opts)
   end
 
   -- Send to tmux
-  local success, err = tmux.send_to_tmux(state.target, text)
+  local success, err = tmux.send_to_tmux(state.target, text, {
+    bracketed_paste = M.config.bracketed_paste,
+  })
 
   if not success then
     vim.notify("Failed to send to tmux: " .. (err or "unknown error"), vim.log.levels.ERROR)
