@@ -15,8 +15,8 @@ end, {
 })
 
 -- Command to send text to tmux
-vim.api.nvim_create_user_command("SendToTmux", function()
-  send_to_tmux.send_to_tmux()
+vim.api.nvim_create_user_command("SendToTmux", function(opts)
+  send_to_tmux.send_to_tmux(opts)
 end, {
   range = true,
   desc = "Send selected text or current line to tmux target",

@@ -61,60 +61,92 @@ M.select_target = function(target)
   vim.notify("Tmux target set to: " .. target, vim.log.levels.INFO)
 end
 
----Get selected text or current line
+---@param mode string
+---@return boolean
+local function is_visual_mode(mode)
+  return mode == "v" or mode == "V" or mode == "\22"
+end
+
+---@param lines string[]
+---@return string|nil
+local function join_lines(lines)
+  if not lines or #lines == 0 then
+    return nil
+  end
+  return table.concat(lines, "\n")
+end
+
+---@param yank_last_selection boolean
+---@return string|nil
+local function yank_visual_to_text(yank_last_selection)
+  local view = vim.fn.winsaveview()
+  local reg_before = vim.fn.getreginfo("z")
+
+  local ok = pcall(function()
+    if yank_last_selection then
+      vim.cmd([[silent normal! gv"zy]])
+    else
+      vim.cmd([[silent normal! "zy]])
+    end
+  end)
+
+  local reg_after = vim.fn.getreginfo("z")
+  vim.fn.setreg("z", reg_before.regcontents or {}, reg_before.regtype or "v")
+  vim.fn.winrestview(view)
+
+  if not ok then
+    return nil
+  end
+
+  return join_lines(reg_after.regcontents)
+end
+
+---@param opts table
+---@return boolean
+local function last_visual_marks_match_range(opts)
+  if not opts or not opts.line1 or not opts.line2 then
+    return false
+  end
+
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_line = start_pos[2]
+  local end_line = end_pos[2]
+  local min_line = math.min(start_line, end_line)
+  local max_line = math.max(start_line, end_line)
+  return min_line == opts.line1 and max_line == opts.line2
+end
+
+---@param opts table|nil
 ---@return string|nil text The selected text or current line
-local function get_text_to_send()
+local function get_text_to_send(opts)
   local mode = vim.fn.mode()
 
-  if mode == "v" or mode == "V" or mode == "" then
-    -- Visual mode: get selected text
-    local start_pos = vim.fn.getpos("'<")
-    local end_pos = vim.fn.getpos("'>")
-    local start_line = start_pos[2]
-    local end_line = end_pos[2]
-    local start_col = start_pos[3]
-    local end_col = end_pos[3]
-
-    -- Handle single line selection
-    if start_line == end_line then
-      local line = vim.fn.getline(start_line)
-      -- Ensure start_col <= end_col
-      if start_col > end_col then
-        start_col, end_col = end_col, start_col
-      end
-      return line:sub(start_col, end_col)
-    end
-
-    -- Handle multi-line selection
-    local lines_result = vim.fn.getline(start_line, end_line)
-    if type(lines_result) == "string" then
-      -- Single line case (should not happen here due to earlier check)
-      return lines_result:sub(start_col, end_col)
-    end
-
-    local lines = lines_result
-    if #lines == 0 then
-      return nil
-    end
-
-    -- Adjust first and last lines for column selection
-    -- Ensure start_col <= end_col for proper substring
-    if start_col > end_col then
-      start_col, end_col = end_col, start_col
-    end
-    lines[1] = lines[1]:sub(start_col)
-    lines[#lines] = lines[#lines]:sub(1, end_col)
-
-    return table.concat(lines, "\n")
-  else
-    -- Normal mode: get current line
-    local line = vim.fn.getline(".")
-    return line
+  if is_visual_mode(mode) then
+    return yank_visual_to_text(false)
   end
+
+  -- When called as a ranged Ex command (e.g. :'<,'>SendToTmux) we're no longer
+  -- in visual mode; reselect the last visual area and yank it.
+  if opts and opts.range and opts.range ~= 0 then
+    local lines = vim.api.nvim_buf_get_lines(0, opts.line1 - 1, opts.line2, false)
+
+    if last_visual_marks_match_range(opts) then
+      local text = yank_visual_to_text(true)
+      if text and text ~= "" then
+        return text
+      end
+    end
+
+    return join_lines(lines)
+  end
+
+  return vim.fn.getline(".")
 end
 
 ---Send text to tmux
-M.send_to_tmux = function()
+---@param opts table|nil
+M.send_to_tmux = function(opts)
   -- Check if tmux is installed
   if not tmux.is_tmux_installed() then
     vim.notify("tmux is not installed", vim.log.levels.ERROR)
@@ -128,7 +160,7 @@ M.send_to_tmux = function()
   end
 
   -- Get text to send
-  local text = get_text_to_send()
+  local text = get_text_to_send(opts)
 
   if not text or text == "" then
     vim.notify("No text to send", vim.log.levels.ERROR)
