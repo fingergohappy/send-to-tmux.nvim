@@ -80,6 +80,27 @@ require("send_to_tmux").setup({
 })
 ```
 
+### Multiline Paste (Python/IPython)
+
+When sending multiline content (e.g. Python `def` blocks) into interactive shells like IPython,
+`tmux send-keys -l` can behave like "typing" and trigger auto-indentation per line.
+
+By default, this plugin uses bracketed paste for multiline sends to preserve indentation:
+
+```lua
+require("send_to_tmux").setup({
+  bracketed_paste = true, -- default: true
+})
+```
+
+If your target program does not support bracketed paste, you can disable it:
+
+```lua
+require("send_to_tmux").setup({
+  bracketed_paste = false,
+})
+```
+
 ### Key Bindings
 
 #### Using lazy.nvim
