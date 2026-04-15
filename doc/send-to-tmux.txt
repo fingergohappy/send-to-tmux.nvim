@@ -17,7 +17,7 @@ Table of Contents                                *send-to-tmux-table-of-contents
 
 A Neovim plugin for sending text content to tmux panes.
 
-This plugin allows you to select a tmux target (session:window.pane) and send
+This plugin allows you to select a tmux pane ID and send
 the current line or visual selection to that tmux pane.
 
 INSTALLATION                                       *send-to-tmux-installation*
@@ -44,8 +44,9 @@ Using packer.nvim:
 
 USAGE                                                     *send-to-tmux-usage*
 
-1. Select a tmux target using `:SendToTmuxSelectTarget`
-2. Send text to the target using `:SendToTmux`
+1. Select a tmux pane ID using `:SendToTmuxSelectTarget`
+2. Use `:SendToTmux` to paste without executing
+3. Use `:SendToTmuxExec` to paste and press Enter
 
 The plugin will send either:
 - The current line (in normal mode)
@@ -54,44 +55,87 @@ The plugin will send either:
 COMMANDS                                               *send-to-tmux-commands*
 
                                                      *:SendToTmuxSelectTarget*
-:SendToTmuxSelectTarget [target]
-    Select tmux target to send text to. The target should be a valid tmux
-    target format (e.g., "0:3.1" for session 0, window 3, pane 1).
+:SendToTmuxSelectTarget [pane_id]
+    Select tmux pane ID to send text to. You can enter the pane ID without
+    "%" (e.g., "7"), and the plugin will normalize it to "%7".
 
     If no target is provided, you will be prompted to enter one.
 
     Example:
 >vim
-    :SendToTmuxSelectTarget 0:1.0
+    :SendToTmuxSelectTarget 7
 <
 
                                                               *:SendToTmux*
 :SendToTmux
     Send the current line or visual selection to the previously selected
-    tmux target.
+    tmux pane without pressing Enter.
 
     Requirements:
-    - A target must be selected first using `:SendToTmuxSelectTarget`
+    - A pane ID must be selected first using `:SendToTmuxSelectTarget`
     - The current line or selection must have content
-    - The target must exist
+    - The pane ID must exist
 
     Example:
 >vim
-    " In normal mode, sends current line
+    " In normal mode, sends current line without executing
     :SendToTmux
 
-    " In visual mode, sends selected text
+    " In visual mode, sends selected text without executing
     :'<,'>SendToTmux
+<
+
+                                                          *:SendToTmuxExec*
+:SendToTmuxExec
+    Send the current line or visual selection to the previously selected
+    tmux pane and then press Enter.
+
+    Requirements:
+    - A pane ID must be selected first using `:SendToTmuxSelectTarget`
+    - The current line or selection must have content
+    - The pane ID must exist
+
+    Example:
+>vim
+    " Send and execute
+    :SendToTmuxExec
 <
 
 CONFIGURATION                                     *send-to-tmux-configuration*
 
-You can optionally configure a default target:
+You can optionally configure a default pane ID:
 
 >lua
     require("send_to_tmux").setup({
-      default_target = "0:1.0",  -- Optional default tmux target
+      default_target = "7",  -- Optional default tmux pane ID
     })
+<
+
+Paste behavior:
+>
+    The plugin sends both single-line and multiline content through tmux
+    paste buffers.
+<
+
+>
+    `:SendToTmux` pastes only. `:SendToTmuxExec` pastes and then sends
+    Enter.
+<
+
+Bracketed paste:
+>
+    By default, tmux is asked to use bracketed paste when the target
+    application has requested it:
+<
+
+>lua
+    require("send_to_tmux").setup({
+      bracketed_paste = true,  -- default: true
+    })
+<
+
+>
+    Set `bracketed_paste = false` to omit the tmux `paste-buffer -p` flag.
 <
 
 KEYMAPS                                               *send-to-tmux-keymaps*
@@ -100,14 +144,18 @@ You can set up key mappings for convenience:
 
 Manual Key Bindings:
 >lua
-    -- Normal mode: send current line
-    vim.keymap.set("n", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send current line to tmux" })
+    -- Normal mode: send current line without executing
+    vim.keymap.set("n", "<leader>tt", "<cmd>SendToTmux<cr>", { desc = "Send current line to tmux" })
     
-    -- Visual mode: send selected text  
-    vim.keymap.set("v", "<leader>t", "<cmd>SendToTmux<cr>", { desc = "Send selected text to tmux" })
+    -- Visual mode: send selected text without executing
+    vim.keymap.set("v", "<leader>tt", "<cmd>SendToTmux<cr>", { desc = "Send selected text to tmux" })
+
+    -- Send and execute
+    vim.keymap.set("n", "<leader>te", "<cmd>SendToTmuxExec<cr>", { desc = "Send current line to tmux and execute" })
+    vim.keymap.set("v", "<leader>te", "<cmd>SendToTmuxExec<cr>", { desc = "Send selected text to tmux and execute" })
     
     -- Select target
-    vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Select tmux target" })
+    vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Select tmux pane ID" })
 <
 
 Using lazy.nvim:
@@ -115,20 +163,22 @@ Using lazy.nvim:
     {
       "fingergohappy/send-to-tmux.nvim",
       event = "VeryLazy",
-      cmd = { "SendToTmuxSelectTarget", "SendToTmux" },
+      cmd = { "SendToTmuxSelectTarget", "SendToTmux", "SendToTmuxExec" },
       opts = {},
       keys = {
-        -- Send text in both normal and visual mode
-        { "<leader>t", mode = { "n", "v" }, "<cmd>SendToTmux<cr>", desc = "Send to tmux" },
+        -- Send text without executing
+        { "<leader>tt", mode = { "n", "v" }, "<cmd>SendToTmux<cr>", desc = "Send to tmux" },
+        -- Send text and execute
+        { "<leader>te", mode = { "n", "v" }, "<cmd>SendToTmuxExec<cr>", desc = "Send to tmux and execute" },
         -- Select target
-        { "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", desc = "Select tmux target" },
+        { "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", desc = "Select tmux pane ID" },
       },
     }
 <
 
 Important Notes:
-1. The `SendToTmux` command works in both normal and visual modes, but key bindings
-   need to be set for each mode separately when using manual mappings.
+1. Both `SendToTmux` and `SendToTmuxExec` work in normal and visual modes, but
+   key bindings need to be set for each mode separately when using manual mappings.
 2. When using lazy.nvim's `keys` specification, you can use `mode = { "n", "v" }`
    to bind the same key in multiple modes.
 3. Make sure your leader key is set: `vim.g.mapleader = " "`
@@ -140,21 +190,21 @@ Common issues and solutions:
 1. "tmux is not installed" error
    - Install tmux: `brew install tmux` (macOS) or `apt install tmux` (Ubuntu)
 
-2. "Target does not exist" error
-   - Check if the tmux session/window/pane exists
+2. "Pane ID does not exist" error
+   - Check if the tmux pane exists
    - Verify with: `tmux list-panes -a`
-   - List tmux targets: `tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"`
+   - List tmux pane IDs: `tmux list-panes -a -F "#{pane_id}"`
 
-4. "No target selected" error
-   - First select a target using `:SendToTmuxSelectTarget`
+4. "No tmux pane ID selected" error
+   - First select a pane ID using `:SendToTmuxSelectTarget`
 
 FAQ                                                     *send-to-tmux-faq*
 
-Q: How do I find my tmux target?
-A: Run: `tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"`
+Q: How do I find my tmux pane ID?
+A: Run: `tmux list-panes -a -F "#{pane_id}"`
 
 Q: Can I send to multiple tmux panes?
-A: Currently, only one target can be selected at a time. You can change targets
+A: Currently, only one pane ID can be selected at a time. You can change panes
    as needed.
 
 Q: Does it work with tmux sessions in detached mode?

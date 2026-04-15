@@ -2,8 +2,8 @@
 local tmux = require("send_to_tmux.module")
 
 ---@class Config
----@field default_target string|nil Default tmux target
----@field bracketed_paste boolean Enable bracketed paste for multiline send
+---@field default_target string|nil Default tmux pane ID
+---@field bracketed_paste boolean Enable tmux bracketed paste when supported
 local config = {
   default_target = nil,
   bracketed_paste = true,
@@ -15,10 +15,20 @@ local M = {}
 ---@type Config
 M.config = config
 
--- Plugin state to store the selected tmux target
+-- Plugin state to store the selected tmux pane ID
 local state = {
   target = nil,
 }
+
+---@param target string
+---@return string
+local function normalize_pane_id(target)
+  if vim.startswith(target, "%") then
+    return target
+  end
+
+  return "%" .. target
+end
 
 ---Setup function for the plugin
 ---@param args Config?
@@ -27,12 +37,12 @@ M.setup = function(args)
 
   -- Set default_target if provided (tmux will validate)
   if M.config.default_target then
-    state.target = M.config.default_target
+    state.target = normalize_pane_id(M.config.default_target)
   end
 end
 
----Select tmux target
----@param target string|nil The tmux target in format "session:window.pane" (e.g., "0:3.1")
+---Select tmux pane ID
+---@param target string|nil The tmux pane ID (e.g. "7" or "%7")
 M.select_target = function(target)
   -- Check if tmux is installed
   if not tmux.is_tmux_installed() then
@@ -43,7 +53,7 @@ M.select_target = function(target)
   -- If no target provided, prompt user for input
   if not target or target == "" then
     vim.ui.input({
-      prompt = "Enter tmux target (format: session:window.pane, e.g., 0:3.1): ",
+      prompt = "Enter tmux pane ID (e.g. 7): ",
     }, function(input)
       if input and input ~= "" then
         M.select_target(input)
@@ -52,15 +62,17 @@ M.select_target = function(target)
     return
   end
 
+  target = normalize_pane_id(target)
+
   -- Check if target exists (tmux will validate format)
   if not tmux.target_exists(target) then
-    vim.notify("Target does not exist: " .. target, vim.log.levels.ERROR)
+    vim.notify("Pane ID does not exist: " .. target, vim.log.levels.ERROR)
     return
   end
 
   -- Save target to state
   state.target = target
-  vim.notify("Tmux target set to: " .. target, vim.log.levels.INFO)
+  vim.notify("Tmux pane ID set to: " .. target, vim.log.levels.INFO)
 end
 
 ---@param mode string
@@ -148,7 +160,8 @@ end
 
 ---Send text to tmux
 ---@param opts table|nil
-M.send_to_tmux = function(opts)
+---@param send_enter boolean
+local function send_text(opts, send_enter)
   -- Check if tmux is installed
   if not tmux.is_tmux_installed() then
     vim.notify("tmux is not installed", vim.log.levels.ERROR)
@@ -157,7 +170,7 @@ M.send_to_tmux = function(opts)
 
   -- Check if target is set
   if not state.target then
-    vim.notify("No tmux target selected. Use :SendToTmuxSelectTarget first", vim.log.levels.ERROR)
+    vim.notify("No tmux pane ID selected. Use :SendToTmuxSelectTarget first", vim.log.levels.ERROR)
     return
   end
 
@@ -171,20 +184,33 @@ M.send_to_tmux = function(opts)
 
   -- Check if target still exists
   if not tmux.target_exists(state.target) then
-    vim.notify("Target no longer exists: " .. state.target, vim.log.levels.ERROR)
+    vim.notify("Pane ID no longer exists: " .. state.target, vim.log.levels.ERROR)
     return
   end
 
   -- Send to tmux
   local success, err = tmux.send_to_tmux(state.target, text, {
     bracketed_paste = M.config.bracketed_paste,
+    send_enter = send_enter,
   })
 
   if not success then
     vim.notify("Failed to send to tmux: " .. (err or "unknown error"), vim.log.levels.ERROR)
   else
-    vim.notify("Text sent to tmux target: " .. state.target, vim.log.levels.INFO)
+    vim.notify("Text sent to tmux pane ID: " .. state.target, vim.log.levels.INFO)
   end
+end
+
+---Send text to tmux without pressing Enter
+---@param opts table|nil
+M.send_to_tmux = function(opts)
+  send_text(opts, false)
+end
+
+---Send text to tmux and press Enter
+---@param opts table|nil
+M.send_to_tmux_exec = function(opts)
+  send_text(opts, true)
 end
 
 ---Get current target
