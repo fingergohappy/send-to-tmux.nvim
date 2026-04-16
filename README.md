@@ -8,6 +8,9 @@ A Neovim plugin for sending text content to tmux panes.
 
 - Select tmux pane by `pane_id`
 - Send current line or visual selection to tmux pane
+- Optionally send `Enter` or auto-focus the target pane after successful sends
+- Edit current line or visual selection in a `snacks.nvim` floating window before sending
+- Edit the current file:line reference before sending
 - Validates tmux installation and pane existence
 - Simple and intuitive commands
 
@@ -18,6 +21,9 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "fingergohappy/send-to-tmux.nvim",
+  dependencies = {
+    "folke/snacks.nvim", -- required for edit-before-send commands
+  },
   config = function()
     require("send_to_tmux").setup()
   end,
@@ -48,35 +54,82 @@ Example:
 :SendToTmuxSelectTarget 7
 ```
 
-If no target is provided, you will be prompted to enter one.
+If no target is provided, the plugin opens a `snacks.nvim` picker when
+available and shows:
+
+- `window_index`
+- `pane_id`
+- `process_name`
+
+You can type to filter and then confirm the pane you want. The picker also
+shows a right-side preview with recent pane output captured through
+`tmux capture-pane -e -p -S -200`. The preview keeps wrapping disabled,
+scrolls to the newest output, and preserves ANSI colors when tmux provides
+them. The pane running the current Neovim instance is filtered out using the
+`TMUX_PANE` environment variable, and moving through the picker temporarily
+highlights the hovered tmux pane itself.
+
+If `snacks.nvim` is not available, it falls back to a simple input prompt.
 
 **`:SendToTmux`**
 
-Send the current line or visual selection to the previously selected tmux pane
-without pressing `Enter`.
+Send the current line or visual selection to the previously selected tmux pane.
+If auto-enter is enabled, a final `Enter` is sent after the text.
 
-**`:SendToTmuxExec`**
+**`:SendToTmuxEdit`**
 
-Send the current line or visual selection to the previously selected tmux pane
-and then press `Enter`.
+Open the current line or visual selection in a `snacks.nvim` floating window.
+Run `:w` inside that window to send the edited content to the selected tmux
+pane and close the window.
+
+**`:SendToTmuxEditRefLine`**
+
+Build a `file:line` reference for the current location, open it in a
+`snacks.nvim` floating window, then run `:w` inside that window to send the
+edited reference to the selected tmux pane and close the window. When used with
+a visual Ex range, it creates a `file:start-end` reference. Paths are relative
+to the git project root when possible.
+
+**`:SendToTmuxAutoEnter [on|off|toggle]`**
+
+Control whether successful sends automatically issue an extra `Enter`.
+
+**`:SendToTmuxAutoFocus [on|off|toggle]`**
+
+Control whether successful sends automatically switch the tmux client to the
+target pane.
 
 Example:
 ```vim
-" In normal mode, sends current line without executing
+" In normal mode, sends current line
 :SendToTmux
 
-" In visual mode, sends selected text without executing
+" In visual mode, sends selected text
 :'<,'>SendToTmux
 
-" Send and execute
-:SendToTmuxExec
+" Edit before sending
+:SendToTmuxEdit
+
+" Edit a file:line reference before sending
+:SendToTmuxEditRefLine
+
+" Edit a file:line-range reference from visual selection
+:'<,'>SendToTmuxEditRefLine
+
+" Enable auto-enter after successful sends
+:SendToTmuxAutoEnter on
+
+" Toggle auto-focus after successful sends
+:SendToTmuxAutoFocus
 ```
 
 ### Workflow
 
 1. Select a tmux pane ID using `:SendToTmuxSelectTarget`
-2. Use `:SendToTmux` to paste without executing
-3. Use `:SendToTmuxExec` to paste and press `Enter`
+2. Use `:SendToTmux` to send the current line or selection
+3. Use `:SendToTmuxEdit` when you want to review and edit the text before it is sent
+4. Use `:SendToTmuxEditRefLine` when you want to send an editable `file:line` reference instead of the selected text
+5. Use `:SendToTmuxAutoEnter` and `:SendToTmuxAutoFocus` to control post-send behavior
 
 ## Configuration
 
@@ -87,6 +140,8 @@ You can optionally configure a default pane ID:
 ```lua
 require("send_to_tmux").setup({
   default_target = "7",  -- Optional default tmux pane ID
+  auto_enter_on_send = false,
+  auto_focus_on_send = false,
 })
 ```
 
@@ -95,8 +150,9 @@ require("send_to_tmux").setup({
 This plugin sends content through tmux paste buffers for both single-line and
 multiline sends.
 
-`:SendToTmux` pastes only. `:SendToTmuxExec` pastes and then issues a final
-`Enter`.
+`:SendToTmux` pastes the text. Use `auto_enter_on_send` if you want sends to
+issue a final `Enter`, and `auto_focus_on_send` if you want successful sends to
+switch to the target pane.
 
 By default, it asks tmux to use bracketed paste when the target application has
 requested it, which helps preserve indentation in interactive shells such as
@@ -116,6 +172,15 @@ require("send_to_tmux").setup({
 })
 ```
 
+Auto-enter and auto-focus:
+
+```lua
+require("send_to_tmux").setup({
+  auto_enter_on_send = false, -- default: false
+  auto_focus_on_send = false, -- default: false
+})
+```
+
 ### Key Bindings
 
 #### Using lazy.nvim
@@ -124,15 +189,25 @@ require("send_to_tmux").setup({
 {
   "fingergohappy/send-to-tmux.nvim",
   event = "VeryLazy",
-  cmd = { "SendToTmuxSelectTarget", "SendToTmux", "SendToTmuxExec" },
+  dependencies = {
+    "folke/snacks.nvim", -- required for edit-before-send commands
+  },
+  cmd = {
+    "SendToTmuxSelectTarget",
+    "SendToTmux",
+    "SendToTmuxEdit",
+    "SendToTmuxEditRefLine",
+    "SendToTmuxAutoEnter",
+    "SendToTmuxAutoFocus",
+  },
   opts = {},
   keys = {
     -- Send text without executing
     { "<leader>tt", mode = { "n", "v" }, "<cmd>SendToTmux<cr>", desc = "Send to tmux" },
-    -- Send text and execute
-    { "<leader>te", mode = { "n", "v" }, "<cmd>SendToTmuxExec<cr>", desc = "Send to tmux and execute" },
-    -- Select target
-    { "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", desc = "Select tmux pane ID" },
+    -- Edit before sending
+    { "<leader>te", mode = { "n", "v" }, "<cmd>SendToTmuxEdit<cr>", desc = "Edit before sending to tmux" },
+    -- Edit current file:line reference before sending
+    { "<leader>tr", mode = { "n", "v" }, "<cmd>SendToTmuxEditRefLine<cr>", desc = "Edit file:line reference before sending to tmux" },
   },
 }
 ```
@@ -146,17 +221,18 @@ vim.keymap.set("n", "<leader>tt", "<cmd>SendToTmux<cr>", { desc = "Send current 
 -- Visual mode: send selected text without executing
 vim.keymap.set("v", "<leader>tt", "<cmd>SendToTmux<cr>", { desc = "Send selected text to tmux" })
 
--- Send and execute
-vim.keymap.set("n", "<leader>te", "<cmd>SendToTmuxExec<cr>", { desc = "Send current line to tmux and execute" })
-vim.keymap.set("v", "<leader>te", "<cmd>SendToTmuxExec<cr>", { desc = "Send selected text to tmux and execute" })
+-- Edit before sending
+vim.keymap.set("n", "<leader>te", "<cmd>SendToTmuxEdit<cr>", { desc = "Edit current line before sending to tmux" })
+vim.keymap.set("v", "<leader>te", "<cmd>SendToTmuxEdit<cr>", { desc = "Edit selection before sending to tmux" })
 
--- Select target
-vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Select tmux pane ID" })
+-- Edit current file:line reference before sending
+vim.keymap.set("n", "<leader>tr", "<cmd>SendToTmuxEditRefLine<cr>", { desc = "Edit file:line reference before sending to tmux" })
+vim.keymap.set("v", "<leader>tr", "<cmd>SendToTmuxEditRefLine<cr>", { desc = "Edit file:line reference before sending to tmux" })
 ```
 
 #### Important Notes
 
-1. **Mode Specification**: Both `SendToTmux` and `SendToTmuxExec` work in normal and visual modes, but key bindings need to be set for each mode separately.
+1. **Mode Specification**: `SendToTmux`, `SendToTmuxEdit`, and `SendToTmuxEditRefLine` work in normal and visual modes, but manual key bindings need to be set for each mode separately.
 
 2. **Leader Key**: Make sure your leader key is set:
    ```lua
@@ -166,12 +242,32 @@ vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Se
 3. **Command Availability**: The plugin registers these commands:
    - `:SendToTmuxSelectTarget` - Select tmux pane ID
    - `:SendToTmux` - Send text to selected pane without executing
-   - `:SendToTmuxExec` - Send text to selected pane and execute
+   - `:SendToTmuxEdit` - Edit text in a `snacks.nvim` floating window before sending
+   - `:SendToTmuxEditRefLine` - Edit the current file:line reference before sending
+   - `:SendToTmuxAutoEnter` - Toggle whether successful sends also issue `Enter`
+   - `:SendToTmuxAutoFocus` - Toggle whether successful sends focus the target pane
 
 ## Requirements
 
 - Neovim >= 0.8.0
 - tmux
+- `snacks.nvim` for edit-before-send commands
+
+### Edit Workflow Requirements
+
+The edit-before-send commands depend on `snacks.nvim`, which currently
+requires `Neovim >= 0.9.4`. The base send commands still work on the plugin's
+documented minimum Neovim version.
+
+### Target Picker
+
+When `snacks.nvim` is installed, `:SendToTmuxSelectTarget` without arguments
+opens a filterable picker instead of a plain input prompt. Each entry is shown
+as:
+
+```text
+%7  nvim  /path/to/project
+```
 
 ## How It Works
 
@@ -186,10 +282,28 @@ vim.keymap.set("n", "<leader>T", "<cmd>SendToTmuxSelectTarget<cr>", { desc = "Se
 3. Checks if current line/selection has content (if not, shows error)
 4. Validates that the pane ID still exists
 5. Loads the selected content into a tmux buffer and pastes it into the target pane
+6. Optionally sends `Enter` and/or focuses the target pane after a successful send
 
-**SendToTmuxExec**:
-1. Follows the same flow as `SendToTmux`
-2. Sends `Enter` after pasting the content
+**SendToTmuxEdit**:
+1. Resolve the current line or visual selection
+2. Open a temporary `acwrite` buffer in a `snacks.nvim` floating window
+3. Let you edit the text in place
+4. Send the full edited buffer content when you run `:w`
+5. Close the floating window after a successful send
+
+**SendToTmuxEditRefLine**:
+1. Builds the current `file:line` reference from the current buffer path and cursor line
+2. Uses the provided Ex range to build `file:start-end` when called as `:'<,'>SendToTmuxEditRefLine`
+3. Makes the path relative to the git project root when possible
+4. Opens the reference in the same temporary `snacks.nvim` edit window
+5. Sends the edited reference when you run `:w`
+6. Closes the floating window after a successful send
+
+**SendToTmuxAutoEnter / SendToTmuxAutoFocus**:
+1. Toggle runtime state in the plugin configuration
+2. `auto_enter_on_send` sends `Enter` after successful sends
+3. `auto_focus_on_send` switches to the target pane after successful sends
+4. Focus runs after the send succeeds
 
 ## License
 
