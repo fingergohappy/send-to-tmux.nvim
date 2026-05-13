@@ -4,6 +4,10 @@ A Neovim plugin for sending text content to tmux panes.
 
 一个 Neovim 插件，用于发送内容到 tmux
 
+## Demo
+
+Demo video: https://youtu.be/qWd8vv11Yvc
+
 ## Features
 
 - Select tmux pane by `pane_id`
