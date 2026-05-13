@@ -37,7 +37,8 @@ end
 ---@return table[] targets
 ---@return string|nil error_msg
 M.list_targets = function()
-  local cmd = "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
+  local cmd =
+    "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
   local handle = io.popen(cmd)
   if not handle then
     return {}, "Failed to list tmux panes"
@@ -222,7 +223,8 @@ end
 ---@return boolean success
 ---@return string|nil error_msg
 M.focus_target = function(target)
-  local handle = io.popen(string.format("tmux display-message -p -t '%s' '#{session_name}:#{window_index}' 2>&1", target))
+  local handle =
+    io.popen(string.format("tmux display-message -p -t '%s' '#{session_name}:#{window_index}' 2>&1", target))
   if not handle then
     return false, "Failed to resolve tmux session/window for pane: " .. target
   end

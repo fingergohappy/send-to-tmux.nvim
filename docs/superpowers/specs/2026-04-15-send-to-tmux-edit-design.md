@@ -1,177 +1,155 @@
-# SendToTmux Edit-Before-Send Design
+# SendToTmux 编辑后发送设计
 
-Date: 2026-04-15
-Status: approved in chat
+日期: 2026-04-15
+状态: 已在对话中确认
 
-## Summary
+## 概述
 
-Add an edit-before-send workflow to `send-to-tmux.nvim` that opens the current
-line or visual selection in a temporary floating editor. The editor is rendered
-through `snacks.nvim`, and saving the buffer sends the edited content to the
-selected tmux pane and closes the window.
+为 `send-to-tmux.nvim` 增加一个“编辑后再发送”的工作流：把当前行或可视选区内容放进一个临时浮动编辑器中。这个编辑器由 `snacks.nvim` 承载；当用户保存该缓冲区时，插件会把编辑后的内容发送到已选中的 tmux pane，并关闭窗口。
 
-This design keeps the main send path inside Neovim, avoids tmux popup process
-management, and reuses the plugin's existing tmux target validation and send
-logic.
+这个设计把主流程保留在 Neovim 内部，避免引入 tmux popup 的额外进程管理，同时复用插件现有的 tmux 目标校验与发送逻辑。
 
-## Goals
+## 目标
 
-- Let users edit the text before it is sent to tmux.
-- Keep the workflow inside the current Neovim session.
-- Preserve the current `SendToTmux` and `SendToTmuxExec` behavior.
-- Close the edit window immediately after a successful save/send.
-- Keep the implementation optional so the existing plugin still works without
-  `snacks.nvim`.
+- 允许用户在发送前先编辑文本。
+- 整个流程保持在当前 Neovim 会话内完成。
+- 保持现有 `SendToTmux` 和 `SendToTmuxExec` 的行为不变。
+- 成功保存并发送后，立即关闭编辑窗口。
+- 让该功能保持为可选增强，即使没有安装 `snacks.nvim`，插件原有功能仍可正常使用。
 
-## Non-Goals
+## 非目标
 
-- Opening a real file on disk for editing.
-- Persisting draft content across sessions.
-- Running a separate `nvim` inside tmux.
-- Replacing the existing non-edit send commands.
+- 不打开磁盘上的真实文件进行编辑。
+- 不做跨会话的草稿持久化。
+- 不在 tmux 内再启动一个独立的 `nvim`。
+- 不替代现有的非编辑发送命令。
 
-## User Experience
+## 用户体验
 
-Two new commands will be added:
+新增两个命令：
 
 - `:SendToTmuxEdit`
 - `:SendToTmuxEditExec`
 
-Behavior:
+行为如下：
 
-1. The command resolves the source text the same way as the existing send
-   commands: visual selection when applicable, otherwise the current line.
-2. A floating edit window opens through `Snacks.win`.
-3. The temporary buffer is pre-filled with the resolved text.
-4. The user edits the text normally.
-5. On `:w`, the plugin intercepts the save, sends the full buffer content to
-   tmux, and closes the floating window on success.
-6. On send failure, the window stays open and an error notification is shown.
+1. 命令先按现有发送命令的规则解析源文本：优先取可视选区，否则取当前行。
+2. 通过 `Snacks.win` 打开一个浮动编辑窗口。
+3. 将解析得到的文本预填充到临时 buffer 中。
+4. 用户在该窗口内正常编辑内容。
+5. 当用户执行 `:w` 时，插件拦截保存动作，将整个 buffer 内容发送到 tmux；成功后关闭浮窗。
+6. 如果发送失败，则保留窗口，并显示错误通知。
 
-`SendToTmuxEdit` will send without `Enter`.
-`SendToTmuxEditExec` will send and then press `Enter`.
+`SendToTmuxEdit` 只发送内容，不按 `Enter`。  
+`SendToTmuxEditExec` 发送内容后再补一个 `Enter`。
 
-## Dependency Strategy
+## 依赖策略
 
-`snacks.nvim` is required only for the new edit commands. The existing
-selection and send commands must continue to work without it.
+`snacks.nvim` 只对新增的编辑命令是必需的。现有的目标选择和发送命令，即使没有安装它，也必须继续正常工作。
 
-Implications:
+这意味着：
 
-- If `snacks.nvim` is unavailable, `:SendToTmuxEdit` and
-  `:SendToTmuxEditExec` will notify the user and abort.
-- The plugin's documented minimum Neovim version can remain unchanged for the
-  base feature set, but the new edit workflow must be documented as requiring a
-  working `snacks.nvim` setup. Since `snacks.nvim` documents `Neovim >= 0.9.4`,
-  that becomes the practical minimum for the edit workflow.
+- 如果系统中没有 `snacks.nvim`，那么 `:SendToTmuxEdit` 和 `:SendToTmuxEditExec` 需要给出通知并中止执行。
+- 插件文档里已有的最低 Neovim 版本要求可以继续保留给基础功能使用；但新增的编辑工作流必须明确说明依赖一个可用的 `snacks.nvim` 配置。由于 `snacks.nvim` 文档声明要求 `Neovim >= 0.9.4`，这也会成为该编辑工作流的实际最低版本要求。
 
-## Window and Buffer Design
+## 窗口与 Buffer 设计
 
-The edit UI will use a temporary buffer displayed in a `Snacks.win` floating
-window.
+编辑界面使用一个临时 buffer，并通过 `Snacks.win` 显示在浮动窗口中。
 
-Buffer properties:
+buffer 属性：
 
 - `buftype = "acwrite"`
 - `bufhidden = "wipe"`
 - `swapfile = false`
 - `modifiable = true`
-- `filetype` inherited from the current buffer when available
+- `filetype` 在可用时继承当前 buffer
 
-This keeps the workflow lightweight and avoids creating temporary files,
-handling cleanup on disk, or managing duplicate sends from file write
-autocommands.
+这样可以保持工作流轻量，不需要创建临时文件，也不用处理磁盘清理、文件写入自动命令重复触发发送等问题。
 
-## Command and Internal API Shape
+## 命令与内部 API 结构
 
-The existing code currently combines "resolve source text" and "send payload"
-inside one local flow. This feature needs those concerns separated so the new
-editor can reuse the same send path.
+当前代码把“解析源文本”和“发送实际内容”混在同一个本地流程里。这个功能需要把两者拆开，这样新的编辑器路径才能复用同一套发送逻辑。
 
-The internal structure should be refactored to:
+内部结构建议调整为：
 
-- keep `get_text_to_send(opts)` for extracting current line / visual selection
-- introduce a dedicated internal function for sending a supplied payload, such
-  as `send_payload(text, send_enter)`
-- keep `send_to_tmux(opts)` and `send_to_tmux_exec(opts)` as thin wrappers
-- add matching wrappers for the edit workflow
+- 保留 `get_text_to_send(opts)`，继续负责提取当前行或可视选区
+- 新增一个专门负责发送指定内容的内部函数，例如 `send_payload(text, send_enter)`
+- 保持 `send_to_tmux(opts)` 和 `send_to_tmux_exec(opts)` 作为轻量包装
+- 为编辑工作流增加对应的包装函数
 
-The send-payload function should own:
+`send_payload` 应统一负责：
 
-- tmux installation checks
-- selected target checks
-- target existence revalidation
-- calling `tmux.send_to_tmux`
-- success and error notifications
+- 检查 tmux 是否已安装
+- 检查是否已经选择目标 pane
+- 重新验证目标 pane 是否仍然存在
+- 调用 `tmux.send_to_tmux`
+- 处理成功与失败通知
 
-This avoids logic drift between normal send and edit-before-send behavior.
+这样可以避免普通发送与编辑后发送之间出现逻辑分叉。
 
-## Save Interception
+## 保存拦截
 
-The temporary edit buffer will attach a buffer-local `BufWriteCmd` autocmd.
+临时编辑 buffer 上会挂一个 buffer-local 的 `BufWriteCmd` 自动命令。
 
-When the user runs `:w` inside the edit buffer:
+当用户在编辑 buffer 中执行 `:w` 时：
 
-1. Read all buffer lines.
-2. Join them with `\n`.
-3. Call the shared send-payload path with the appropriate `send_enter` mode.
-4. If send succeeds:
-   - mark the buffer as not modified
-   - close the floating window
-   - wipe the buffer
-5. If send fails:
-   - leave the window open
-   - keep the buffer contents intact
-   - surface the error through `vim.notify`
+1. 读取整个 buffer 的所有行。
+2. 用 `\n` 连接为完整文本。
+3. 根据当前命令对应的 `send_enter` 模式，调用共享的发送逻辑。
+4. 如果发送成功：
+   - 将 buffer 标记为未修改
+   - 关闭浮动窗口
+   - wipe 掉该 buffer
+5. 如果发送失败：
+   - 保留窗口
+   - 保留 buffer 内容
+   - 通过 `vim.notify` 报错
 
-## Failure Handling
+## 失败处理
 
-The edit command must fail early and clearly in these cases:
+编辑命令在下列情况中必须尽早失败，并给出明确反馈：
 
-- tmux is not installed
-- no target pane has been selected
-- selected target pane no longer exists
-- no source text is available
-- `snacks.nvim` is not installed or does not expose the required window API
+- tmux 未安装
+- 还没有选择目标 pane
+- 已选择的目标 pane 已不存在
+- 没有可发送的源文本
+- 未安装 `snacks.nvim`，或者它没有暴露所需的窗口 API
 
-For send-time failures after the edit window opens, the content must remain in
-place so the user can fix or retry without data loss.
+如果编辑窗口已经打开，但发送阶段失败，则必须保留当前内容，确保用户可以继续修改或重试，而不会丢失文本。
 
-## Testing Strategy
+## 测试策略
 
-Add focused unit tests to the existing plenary test suite.
+在现有的 plenary 测试套件中补充聚焦的单元测试。
 
-Coverage:
+覆盖范围：
 
-- opening edit mode seeds the temporary buffer with the expected text
-- `SendToTmuxEdit` maps to `send_enter = false`
-- `SendToTmuxEditExec` maps to `send_enter = true`
-- saving the edit buffer calls the shared send-payload path
-- successful save closes the window and clears the temporary buffer state
-- failed save keeps the window open
-- missing `snacks.nvim` surfaces an actionable error
+- 打开编辑模式时，会把预期文本放进临时 buffer
+- `SendToTmuxEdit` 对应 `send_enter = false`
+- `SendToTmuxEditExec` 对应 `send_enter = true`
+- 保存编辑 buffer 时会调用共享发送逻辑
+- 保存成功后会关闭窗口并清理临时 buffer 状态
+- 保存失败时窗口保持打开
+- 缺少 `snacks.nvim` 时会给出可操作的错误提示
 
-Tests should stub the snacks window constructor rather than depending on a real
-UI implementation.
+测试应 stub 掉 snacks 的窗口构造，而不是依赖真实 UI。
 
-## Documentation Changes
+## 文档更新
 
-Update user-facing docs to cover:
+需要更新用户文档，覆盖：
 
-- the two new commands
-- the save-to-send workflow
-- the optional `snacks.nvim` dependency
-- the practical Neovim requirement for the edit workflow
-- example keymaps if the project continues to document keymaps in the README
+- 两个新命令
+- 保存即发送的工作流
+- `snacks.nvim` 的可选依赖说明
+- 编辑工作流的实际 Neovim 版本要求
+- 如果 README 继续维护按键映射示例，也应补充对应示例
 
-## Implementation Notes
+## 实现说明
 
-The first iteration should stay narrow:
+第一版实现应保持收敛：
 
-- no persistent drafts
-- no configurable close behavior
-- no tmux popup fallback
-- no extra edit window actions beyond normal editing and `:w`
+- 不做持久化草稿
+- 不做“发送成功后是否关闭”的可配置项
+- 不提供 tmux popup 作为回退方案
+- 不增加除正常编辑和 `:w` 之外的额外窗口动作
 
-This keeps the feature aligned with the plugin's current small surface area and
-reduces branching in the send logic.
+这样更符合插件当前较小的功能面，也能减少发送逻辑里的分支复杂度。

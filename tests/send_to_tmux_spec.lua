@@ -43,7 +43,10 @@ describe("send_to_tmux.module", function()
 
     io.popen = function(cmd)
       table.insert(commands, cmd)
-      if cmd == "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null" then
+      if
+        cmd
+        == "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
+      then
         return {
           read = function()
             return "2\t%7\tnvim\t/tmp/project\n5\t%8\tpython\t/tmp/other\n"
