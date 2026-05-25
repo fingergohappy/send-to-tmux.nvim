@@ -66,15 +66,22 @@ COMMANDS                                               *send-to-tmux-commands*
     Select tmux pane ID to send text to. You can enter the pane ID without
     "%" (e.g., "7"), and the plugin will normalize it to "%7".
 
-    If no target is provided, `snacks.nvim` opens a filterable picker showing:
-    - window index
+    If no target is provided, `snacks.nvim` opens a filterable picker where
+    panes are grouped by tmux window. Window parent rows show:
+    - session_name:window_index window_name
+
+    Pane child rows show:
     - pane ID
     - current process name
+    - current pane path
     - a right-side preview of recent pane output captured with
       `tmux capture-pane -e -p -S -200`
 
     The preview does not wrap long lines, opens at the newest output, and
     preserves ANSI colours when tmux provides them.
+
+    You can filter by pane details or window name. Window parent rows are not
+    selectable targets; confirm a pane child row to set the target.
 
     The pane running the current Neovim instance is filtered out using the
     `TMUX_PANE` environment variable, and moving through the picker
@@ -111,8 +118,8 @@ COMMANDS                                               *send-to-tmux-commands*
                                                           *:SendToTmuxEdit*
 :SendToTmuxEdit
     Open the current line or visual selection in a `snacks.nvim` floating
-    window. Run `:w` inside that window to send the edited text to the
-    selected tmux pane and close the window.
+    window. Run `:w` or press `<C-s>` inside that window to send the edited
+    text to the selected tmux pane and close the window.
 
     Requirements:
     - A pane ID must be selected first using `:SendToTmuxSelectTarget`
@@ -128,9 +135,10 @@ COMMANDS                                               *send-to-tmux-commands*
                                                    *:SendToTmuxEditRefLine*
 :SendToTmuxEditRefLine
     Build a `file:line` reference for the current location, then open that
-    reference in a `snacks.nvim` floating window. Run `:w` inside that window
-    to send the edited reference to the selected tmux pane and close the
-    window. Paths are relative to the git project root when possible.
+    reference in a `snacks.nvim` floating window. Run `:w` or press `<C-s>`
+    inside that window to send the edited reference to the selected tmux pane
+    and close the window. Paths are relative to the git project root when
+    possible.
 
     When called with a visual Ex range, this command creates a `file:start-end`
     reference:
@@ -180,6 +188,7 @@ You can optionally configure a default pane ID:
       default_target = "7",  -- Optional default tmux pane ID
       auto_enter_on_send = false,
       auto_focus_on_send = false,
+      edit_send_key = "<C-s>",
     })
 <
 
@@ -217,6 +226,25 @@ Auto-enter and auto-focus:
       auto_enter_on_send = false,  -- default: false
       auto_focus_on_send = false,  -- default: false
     })
+<
+
+Edit window send key:
+>
+    The edit-before-send floating window maps `<C-s>` buffer-locally in
+    normal and insert mode by default. It sends the full edited buffer, just
+    like `:w`.
+<
+
+>lua
+    require("send_to_tmux").setup({
+      edit_send_key = "<C-g>",
+    })
+<
+
+>
+    Set `edit_send_key = false` or `edit_send_key = ""` to disable the edit
+    window shortcut. Some terminals use Ctrl-S for software flow control and
+    may intercept `<C-s>` before Neovim receives it.
 <
 
 KEYMAPS                                               *send-to-tmux-keymaps*
@@ -275,6 +303,9 @@ Important Notes:
 2. When using lazy.nvim's `keys` specification, you can use `mode = { "n", "v" }`
    to bind the same key in multiple modes.
 3. Make sure your leader key is set: `vim.g.mapleader = " "`
+4. `edit_send_key` is buffer-local to the temporary edit window. The default
+   is `<C-s>`, and some terminals may intercept Ctrl-S before Neovim receives
+   it.
 
 REQUIREMENTS
 
@@ -288,10 +319,11 @@ requires `Neovim >= 0.9.4`.
 TARGET PICKER
 
 When `snacks.nvim` is installed, `:SendToTmuxSelectTarget` without arguments
-opens a filterable picker instead of a plain input prompt. Each entry is
-displayed like this:
+opens a filterable picker instead of a plain input prompt. Panes are grouped
+under tmux window parent rows:
 >
-    %7  nvim  /path/to/project
+    work:2 editor
+      %7  nvim  /path/to/project
 <
 
 TROUBLESHOOTING                               *send-to-tmux-troubleshooting*
@@ -345,6 +377,10 @@ A: Yes. Use `:SendToTmuxAutoFocus on` or set `auto_focus_on_send = true`.
 Q: What does `:w` do inside the edit window?
 A: It sends the full edited buffer content to tmux. On success, the window
    closes immediately.
+
+Q: Can I use a key to send from the edit window?
+A: Yes. The default is `<C-s>` in normal and insert mode. Configure it with
+   `edit_send_key`, or set `edit_send_key = false` to disable it.
 
 Q: Does `:SendToTmuxEditRefLine` change my clipboard?
 A: No. It reads the current buffer path and selected line range directly.

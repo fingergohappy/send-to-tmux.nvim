@@ -38,7 +38,7 @@ end
 ---@return string|nil error_msg
 M.list_targets = function()
   local cmd =
-    "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
+    "tmux list-panes -a -F '#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
   local handle = io.popen(cmd)
   if not handle then
     return {}, "Failed to list tmux panes"
@@ -52,10 +52,14 @@ M.list_targets = function()
 
   local targets = {}
   for line in result:gmatch("[^\r\n]+") do
-    local window_index, pane_id, process_name, path = line:match("([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)")
+    local session_name, window_id, window_index, window_name, pane_id, process_name, path =
+      line:match("([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)")
     if pane_id and pane_id ~= "" then
       table.insert(targets, {
+        session_name = session_name ~= "" and session_name or "?",
+        window_id = window_id ~= "" and window_id or "?",
         window_index = window_index ~= "" and window_index or "?",
+        window_name = window_name ~= "" and window_name or "?",
         pane_id = pane_id,
         process_name = process_name ~= "" and process_name or "?",
         path = path ~= "" and path or "?",

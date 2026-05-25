@@ -6,11 +6,13 @@ local tmux = require("send_to_tmux.module")
 ---@field bracketed_paste boolean Enable tmux bracketed paste when supported
 ---@field auto_enter_on_send boolean Send Enter after successful sends
 ---@field auto_focus_on_send boolean Focus the target pane after successful sends
+---@field edit_send_key string|false Buffer-local send key for edit windows, false or empty disables
 local config = {
   default_target = nil,
   bracketed_paste = true,
   auto_enter_on_send = false,
   auto_focus_on_send = false,
+  edit_send_key = "<C-s>",
 }
 
 ---@class SendToTmuxModule
@@ -66,6 +68,13 @@ end
 
 ---@param ctx table
 local function render_target_preview(ctx)
+  if not ctx.item or not ctx.item.pane_id then
+    local buf = ctx.preview:scratch()
+    ctx.preview:set_title(ctx.item and ctx.item.display_text or "tmux window")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+    return
+  end
+
   local preview_text = ctx.item.preview_ansi_text or ctx.item.preview_text or "(pane is empty)"
   local buf = ctx.preview:scratch()
   local line_count = ctx.item.pos and ctx.item.pos[1] or count_preview_lines(preview_text)
@@ -91,15 +100,48 @@ local function render_target_preview(ctx)
   scroll_preview_to_bottom(ctx.win, line_count)
 end
 
+---@param value string|nil
+---@return string
+local function target_field(value)
+  return value and value ~= "" and value or "?"
+end
+
 ---@param target table
+---@return string
+local function target_window_label(target)
+  return string.format(
+    "%s:%s %s",
+    target_field(target.session_name),
+    target_field(target.window_index),
+    target_field(target.window_name)
+  )
+end
+
+---@param target table
+---@return string
+local function target_window_key(target)
+  return target_field(target.session_name) .. "\t" .. target_field(target.window_id)
+end
+
+---@param target table
+---@param window_item table
+---@param window_label string
 ---@return table
-local function build_target_picker_item(target)
+local function build_target_picker_item(target, window_item, window_label)
+  local display_text =
+    string.format("%s  %s  %s", target.pane_id, target_field(target.process_name), target_field(target.path))
   local item = {
+    session_name = target.session_name,
+    window_id = target.window_id,
     window_index = target.window_index,
+    window_name = target.window_name,
+    window_label = window_label,
     pane_id = target.pane_id,
     process_name = target.process_name,
     path = target.path,
-    text = string.format("%s  %s  %s", target.window_index or "?", target.pane_id, target.process_name),
+    parent = window_item,
+    text = string.format("%s  %s", window_label, display_text),
+    display_text = display_text,
   }
 
   if tmux.preview_target then
@@ -117,6 +159,62 @@ local function build_target_picker_item(target)
   end
 
   return item
+end
+
+---@param targets table[]
+---@return table[]
+local function build_target_picker_items(targets)
+  local items = {}
+  local windows_by_key = {}
+
+  for _, target in ipairs(targets) do
+    local window_key = target_window_key(target)
+    local window_item = windows_by_key[window_key]
+    if not window_item then
+      local window_label = target_window_label(target)
+      window_item = {
+        is_window = true,
+        session_name = target_field(target.session_name),
+        window_id = target_field(target.window_id),
+        window_index = target_field(target.window_index),
+        window_name = target_field(target.window_name),
+        window_label = window_label,
+        text = window_label,
+        display_text = window_label,
+      }
+      windows_by_key[window_key] = window_item
+      table.insert(items, window_item)
+    end
+
+    local pane_item = build_target_picker_item(target, window_item, window_item.window_label)
+    if window_item.last_child then
+      window_item.last_child.last = false
+    end
+    pane_item.last = true
+    window_item.last_child = pane_item
+    table.insert(items, pane_item)
+  end
+
+  for _, item in ipairs(items) do
+    if item.is_window then
+      item.last_child = nil
+    end
+  end
+
+  return items
+end
+
+---@param snacks table
+---@return fun(item: table, picker: table): table
+local function target_picker_format(snacks)
+  return function(item, picker)
+    local ret = {}
+    if item.parent and snacks.picker and snacks.picker.format and snacks.picker.format.tree then
+      vim.list_extend(ret, snacks.picker.format.tree(item, picker))
+    end
+    ret[#ret + 1] = { item.display_text or item.text or "" }
+    return ret
+  end
 end
 
 ---@return boolean opened
@@ -150,10 +248,7 @@ local function open_target_picker()
     return true
   end
 
-  local items = {}
-  for _, target in ipairs(filtered_targets) do
-    table.insert(items, build_target_picker_item(target))
-  end
+  local items = build_target_picker_items(filtered_targets)
 
   local highlighted_pane_id
 
@@ -188,7 +283,11 @@ local function open_target_picker()
   snacks.picker.pick(nil, {
     title = "Select tmux pane",
     items = items,
-    format = "text",
+    matcher = {
+      keep_parents = true,
+      sort = false,
+    },
+    format = target_picker_format(snacks),
     preview = render_target_preview,
     layout = {
       preset = "default",
@@ -211,12 +310,13 @@ local function open_target_picker()
       clear_highlight()
     end,
     confirm = function(picker, item)
+      if not item or not item.pane_id then
+        return
+      end
       if picker and picker.close then
         picker:close()
       end
-      if item and item.pane_id then
-        M.select_target(item.pane_id)
-      end
+      M.select_target(item.pane_id)
     end,
   })
 
@@ -518,7 +618,30 @@ local function open_edit_window(text)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modified = false
 
-  local win = snacks.win({
+  local win
+
+  local function send_and_close()
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+
+    local payload = join_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    if not send_payload(payload) then
+      return
+    end
+
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.bo[buf].modified = false
+    end
+    if win and win.close then
+      win:close()
+    end
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+
+  win = snacks.win({
     buf = buf,
     enter = true,
     width = 0.7,
@@ -529,23 +652,22 @@ local function open_edit_window(text)
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
-    callback = function()
-      local payload = join_lines(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-      if not send_payload(payload) then
-        return
-      end
-
-      if vim.api.nvim_buf_is_valid(buf) then
-        vim.bo[buf].modified = false
-      end
-      if win and win.close then
-        win:close()
-      end
-      if vim.api.nvim_buf_is_valid(buf) then
-        vim.api.nvim_buf_delete(buf, { force = true })
-      end
-    end,
+    callback = send_and_close,
   })
+
+  local edit_send_key = M.config.edit_send_key
+  if type(edit_send_key) == "string" and edit_send_key ~= "" then
+    vim.keymap.set({ "n", "i" }, edit_send_key, function()
+      if vim.fn.mode():sub(1, 1) == "i" then
+        vim.cmd("stopinsert")
+      end
+      send_and_close()
+    end, {
+      buffer = buf,
+      silent = true,
+      desc = "Send edited text to tmux",
+    })
+  end
 end
 
 ---Send text to tmux without pressing Enter

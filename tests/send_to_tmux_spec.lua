@@ -38,18 +38,18 @@ describe("send_to_tmux.module", function()
     assert.are.equal("tmux list-panes -a -F '#{pane_id}' 2>/dev/null", commands[1])
   end)
 
-  it("lists tmux panes with window index metadata", function()
+  it("lists tmux panes with window metadata", function()
     local commands = {}
 
     io.popen = function(cmd)
       table.insert(commands, cmd)
       if
         cmd
-        == "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
+        == "tmux list-panes -a -F '#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null"
       then
         return {
           read = function()
-            return "2\t%7\tnvim\t/tmp/project\n5\t%8\tpython\t/tmp/other\n"
+            return "work\t@2\t2\teditor\t%7\tnvim\t/tmp/project\n\t\t\t\t%8\t\t\n"
           end,
           close = function()
             return true
@@ -66,20 +66,26 @@ describe("send_to_tmux.module", function()
     assert.is_nil(err)
     assert.are.same({
       {
+        session_name = "work",
+        window_id = "@2",
         window_index = "2",
+        window_name = "editor",
         pane_id = "%7",
         process_name = "nvim",
         path = "/tmp/project",
       },
       {
-        window_index = "5",
+        session_name = "?",
+        window_id = "?",
+        window_index = "?",
+        window_name = "?",
         pane_id = "%8",
-        process_name = "python",
-        path = "/tmp/other",
+        process_name = "?",
+        path = "?",
       },
     }, targets)
     assert.are.same({
-      "tmux list-panes -a -F '#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null",
+      "tmux list-panes -a -F '#{session_name}\t#{window_id}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}' 2>/dev/null",
     }, commands)
   end)
 
@@ -387,6 +393,16 @@ describe("send_to_tmux", function()
   local original_buf
   local temp_buffers
 
+  local function find_buf_keymap(buf, mode, lhs)
+    local expected_lhs = lhs:lower()
+    for _, keymap in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
+      if keymap.lhs:lower() == expected_lhs then
+        return keymap
+      end
+    end
+    return nil
+  end
+
   before_each(function()
     original_notify = vim.notify
     original_input = vim.ui.input
@@ -401,7 +417,7 @@ describe("send_to_tmux", function()
         return true
       end,
       target_exists = function(target)
-        return target == "%7" or target == "%8"
+        return target == "%7" or target == "%8" or target == "%9" or target == "%10"
       end,
       send_to_tmux = function()
         return true
@@ -461,9 +477,12 @@ describe("send_to_tmux", function()
     }, notifications)
   end)
 
-  it("opens a Snacks picker to choose a tmux pane when no target is provided", function()
+  it("opens a window-grouped Snacks picker to choose a tmux pane when no target is provided", function()
     local picker_calls = {}
     local notifications = {}
+    local tree_items = {}
+    local formatted = {}
+    local close_calls = 0
     local send_to_tmux = require("send_to_tmux")
 
     vim.notify = function(msg, level)
@@ -473,16 +492,40 @@ describe("send_to_tmux", function()
     package.loaded["send_to_tmux.module"].list_targets = function()
       return {
         {
-          window_index = "2",
+          session_name = "work",
+          window_id = "@1",
+          window_index = "1",
+          window_name = "editor",
           pane_id = "%7",
           process_name = "nvim",
           path = "/tmp/project",
         },
         {
-          window_index = "5",
+          session_name = "work",
+          window_id = "@2",
+          window_index = "2",
+          window_name = "shell",
           pane_id = "%8",
+          process_name = "zsh",
+          path = "/tmp/shell-a",
+        },
+        {
+          session_name = "work",
+          window_id = "@2",
+          window_index = "2",
+          window_name = "shell",
+          pane_id = "%9",
           process_name = "python",
-          path = "/tmp/other",
+          path = "/tmp/shell-b",
+        },
+        {
+          session_name = "dev",
+          window_id = "@1",
+          window_index = "1",
+          window_name = "api",
+          pane_id = "%10",
+          process_name = "node",
+          path = "/tmp/api",
         },
       }
     end
@@ -490,16 +533,26 @@ describe("send_to_tmux", function()
       return "%7"
     end
     package.loaded["send_to_tmux.module"].preview_target = function(target)
-      return "\27[31mheader %8\27[0m\nbody %8\n"
+      return string.format("\27[31mheader %s\27[0m\nbody %s\n", target, target)
     end
 
     package.loaded["snacks"] = {
       picker = {
+        format = {
+          tree = function(item)
+            table.insert(tree_items, item.pane_id)
+            return { { "TREE ", "Tree" } }
+          end,
+        },
         pick = function(_, opts)
           table.insert(picker_calls, opts)
+          formatted.parent = opts.format(opts.items[1], {})
+          formatted.child = opts.format(opts.items[2], {})
           opts.confirm({
-            close = function() end,
-          }, opts.items[1])
+            close = function()
+              close_calls = close_calls + 1
+            end,
+          }, opts.items[2])
         end,
       },
     }
@@ -508,6 +561,11 @@ describe("send_to_tmux", function()
 
     assert.are.equal(1, #picker_calls)
     assert.is_function(picker_calls[1].preview)
+    assert.is_function(picker_calls[1].format)
+    assert.are.same({
+      keep_parents = true,
+      sort = false,
+    }, picker_calls[1].matcher)
     assert.are.same({
       preset = "default",
     }, picker_calls[1].layout)
@@ -522,25 +580,91 @@ describe("send_to_tmux", function()
         },
       },
     }, picker_calls[1].win)
+
+    local items = picker_calls[1].items
+    assert.are.equal(5, #items)
+    assert.is_true(items[1].is_window)
+    assert.is_nil(items[1].pane_id)
+    assert.are.equal("work:2 shell", items[1].display_text)
+    assert.are.equal("work:2 shell", items[1].text)
+    assert.are.equal("%8", items[2].pane_id)
+    assert.are.equal("%8  zsh  /tmp/shell-a", items[2].display_text)
+    assert.is_true(items[2].text:find("work:2 shell", 1, true) ~= nil)
+    assert.is_true(items[2].parent == items[1])
+    assert.is_false(items[2].last)
+    assert.are.equal("%9", items[3].pane_id)
+    assert.is_true(items[3].parent == items[1])
+    assert.is_true(items[3].last)
+    assert.is_true(items[4].is_window)
+    assert.are.equal("dev:1 api", items[4].display_text)
+    assert.are.equal("%10", items[5].pane_id)
+    assert.is_true(items[5].parent == items[4])
+    assert.is_true(items[5].last)
+    for _, item in ipairs(items) do
+      assert.is_true(item.pane_id ~= "%7")
+    end
+
     assert.are.same({
-      {
-        window_index = "5",
-        pane_id = "%8",
-        process_name = "python",
-        path = "/tmp/other",
-        text = "5  %8  python",
-        pos = { 2, 0 },
-        preview_text = "\27[31mheader %8\27[0m\nbody %8",
-        preview_ansi_text = "\27[31mheader %8\27[0m\nbody %8",
-      },
-    }, picker_calls[1].items)
+      { "work:2 shell" },
+    }, formatted.parent)
+    assert.are.same({
+      { "TREE ", "Tree" },
+      { "%8  zsh  /tmp/shell-a" },
+    }, formatted.child)
+    assert.are.same({ "%8" }, tree_items)
+    assert.are.same({ 2, 0 }, items[2].pos)
+    assert.are.equal("\27[31mheader %8\27[0m\nbody %8", items[2].preview_text)
+    assert.are.equal("\27[31mheader %8\27[0m\nbody %8", items[2].preview_ansi_text)
+    assert.are.equal(1, close_calls)
     assert.are.equal("%8", send_to_tmux.get_target())
     assert.are.same({
       { msg = "Tmux pane ID set to: %8", level = vim.log.levels.INFO },
     }, notifications)
   end)
 
-  it("highlights the hovered pane and clears highlight when the picker closes", function()
+  it("keeps the picker open when confirming a window parent item", function()
+    local closed = false
+    local notifications = {}
+    local send_to_tmux = require("send_to_tmux")
+
+    vim.notify = function(msg, level)
+      table.insert(notifications, { msg = msg, level = level })
+    end
+
+    package.loaded["send_to_tmux.module"].list_targets = function()
+      return {
+        {
+          session_name = "work",
+          window_id = "@2",
+          window_index = "2",
+          window_name = "shell",
+          pane_id = "%8",
+          process_name = "zsh",
+          path = "/tmp/shell",
+        },
+      }
+    end
+
+    package.loaded["snacks"] = {
+      picker = {
+        pick = function(_, opts)
+          opts.confirm({
+            close = function()
+              closed = true
+            end,
+          }, opts.items[1])
+        end,
+      },
+    }
+
+    send_to_tmux.select_target()
+
+    assert.is_nil(send_to_tmux.get_target())
+    assert.is_false(closed)
+    assert.are.same({}, notifications)
+  end)
+
+  it("highlights hovered pane items and ignores window parent items", function()
     local highlighted = {}
     local cleared = {}
     local picker_calls = {}
@@ -549,13 +673,19 @@ describe("send_to_tmux", function()
     package.loaded["send_to_tmux.module"].list_targets = function()
       return {
         {
+          session_name = "work",
+          window_id = "@2",
           window_index = "2",
+          window_name = "editor",
           pane_id = "%7",
           process_name = "nvim",
           path = "/tmp/project",
         },
         {
+          session_name = "work",
+          window_id = "@5",
           window_index = "5",
+          window_name = "shell",
           pane_id = "%8",
           process_name = "python",
           path = "/tmp/other",
@@ -580,7 +710,9 @@ describe("send_to_tmux", function()
           table.insert(picker_calls, opts)
           opts.on_change(nil, opts.items[1])
           opts.on_change(nil, opts.items[2])
-          opts.on_change(nil, opts.items[2])
+          opts.on_change(nil, opts.items[3])
+          opts.on_change(nil, opts.items[4])
+          opts.on_change(nil, opts.items[4])
           opts.on_close(nil)
         end,
       },
@@ -698,6 +830,135 @@ describe("send_to_tmux", function()
     assert.are.equal("acwrite", vim.bo[snacks_calls[1].buf].buftype)
   end)
 
+  it("maps the default edit send key in normal and insert modes", function()
+    local snacks_calls = {}
+    local send_to_tmux = require("send_to_tmux")
+
+    package.loaded["snacks"] = {
+      win = function(opts)
+        table.insert(snacks_calls, opts)
+        table.insert(temp_buffers, opts.buf)
+        return {
+          buf = opts.buf,
+          close = function() end,
+        }
+      end,
+    }
+
+    vim.fn.mode = function()
+      return "n"
+    end
+    vim.fn.getline = function()
+      return "echo hi"
+    end
+
+    send_to_tmux.select_target("%7")
+    send_to_tmux.send_to_tmux_edit()
+
+    local edit_buf = snacks_calls[1].buf
+    local normal_map = find_buf_keymap(edit_buf, "n", "<C-s>")
+    local insert_map = find_buf_keymap(edit_buf, "i", "<C-s>")
+
+    assert.is_not_nil(normal_map)
+    assert.is_not_nil(insert_map)
+    assert.is_function(normal_map.callback)
+    assert.is_function(insert_map.callback)
+    assert.are.equal("Send edited text to tmux", normal_map.desc)
+    assert.are.equal("Send edited text to tmux", insert_map.desc)
+    assert.are.equal(1, normal_map.silent)
+    assert.are.equal(1, insert_map.silent)
+  end)
+
+  it("sends edited text with the default edit send key and closes the window", function()
+    local send_calls = {}
+    local closed = false
+    local send_to_tmux = require("send_to_tmux")
+
+    package.loaded["send_to_tmux.module"].send_to_tmux = function(target, text, opts)
+      table.insert(send_calls, {
+        target = target,
+        text = text,
+        opts = opts,
+      })
+      return true
+    end
+
+    package.loaded["snacks"] = {
+      win = function(opts)
+        table.insert(temp_buffers, opts.buf)
+        vim.api.nvim_set_current_buf(opts.buf)
+        return {
+          buf = opts.buf,
+          close = function()
+            closed = true
+          end,
+        }
+      end,
+    }
+
+    vim.fn.mode = function()
+      return "n"
+    end
+    vim.fn.getline = function()
+      return "echo hi"
+    end
+
+    send_to_tmux.select_target("%7")
+    send_to_tmux.send_to_tmux_edit()
+
+    local edit_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(edit_buf, 0, -1, false, { "python", "print('hi')" })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-s>", true, false, true), "mx", false)
+
+    assert.are.same({
+      {
+        target = "%7",
+        text = "python\nprint('hi')",
+        opts = {
+          bracketed_paste = true,
+        },
+      },
+    }, send_calls)
+    assert.is_true(closed)
+    assert.is_false(vim.api.nvim_buf_is_valid(edit_buf))
+  end)
+
+  it("uses a custom edit send key instead of the default key", function()
+    local snacks_calls = {}
+    local send_to_tmux = require("send_to_tmux")
+
+    send_to_tmux.setup({
+      edit_send_key = "<C-g>",
+    })
+
+    package.loaded["snacks"] = {
+      win = function(opts)
+        table.insert(snacks_calls, opts)
+        table.insert(temp_buffers, opts.buf)
+        return {
+          buf = opts.buf,
+          close = function() end,
+        }
+      end,
+    }
+
+    vim.fn.mode = function()
+      return "n"
+    end
+    vim.fn.getline = function()
+      return "echo hi"
+    end
+
+    send_to_tmux.select_target("%7")
+    send_to_tmux.send_to_tmux_edit()
+
+    local edit_buf = snacks_calls[1].buf
+    assert.is_not_nil(find_buf_keymap(edit_buf, "n", "<C-g>"))
+    assert.is_not_nil(find_buf_keymap(edit_buf, "i", "<C-g>"))
+    assert.is_nil(find_buf_keymap(edit_buf, "n", "<C-s>"))
+    assert.is_nil(find_buf_keymap(edit_buf, "i", "<C-s>"))
+  end)
+
   it("sends edited text on save and closes the window", function()
     local send_calls = {}
     local closed = false
@@ -743,6 +1004,66 @@ describe("send_to_tmux", function()
       {
         target = "%7",
         text = "python\nprint('hi')",
+        opts = {
+          bracketed_paste = true,
+        },
+      },
+    }, send_calls)
+    assert.is_true(closed)
+  end)
+
+  it("disables edit send keymaps while keeping write-to-send", function()
+    local send_calls = {}
+    local closed = false
+    local send_to_tmux = require("send_to_tmux")
+
+    send_to_tmux.setup({
+      edit_send_key = false,
+    })
+
+    package.loaded["send_to_tmux.module"].send_to_tmux = function(target, text, opts)
+      table.insert(send_calls, {
+        target = target,
+        text = text,
+        opts = opts,
+      })
+      return true
+    end
+
+    package.loaded["snacks"] = {
+      win = function(opts)
+        table.insert(temp_buffers, opts.buf)
+        vim.api.nvim_set_current_buf(opts.buf)
+        return {
+          buf = opts.buf,
+          close = function()
+            closed = true
+          end,
+        }
+      end,
+    }
+
+    vim.fn.mode = function()
+      return "n"
+    end
+    vim.fn.getline = function()
+      return "echo hi"
+    end
+
+    send_to_tmux.select_target("%7")
+    send_to_tmux.send_to_tmux_edit()
+
+    local edit_buf = vim.api.nvim_get_current_buf()
+    assert.is_nil(find_buf_keymap(edit_buf, "n", "<C-s>"))
+    assert.is_nil(find_buf_keymap(edit_buf, "i", "<C-s>"))
+
+    vim.api.nvim_buf_set_lines(edit_buf, 0, -1, false, { "echo changed" })
+    vim.cmd("write")
+
+    assert.are.same({
+      {
+        target = "%7",
+        text = "echo changed",
         opts = {
           bracketed_paste = true,
         },
