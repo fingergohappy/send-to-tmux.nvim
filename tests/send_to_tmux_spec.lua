@@ -1009,7 +1009,71 @@ describe("send_to_tmux", function()
         },
       },
     }, send_calls)
+    vim.wait(100, function()
+      return closed
+    end)
     assert.is_true(closed)
+  end)
+
+  it("keeps the host window open when the edit window is saved with wq", function()
+    local send_to_tmux = require("send_to_tmux")
+    local host_win = vim.api.nvim_get_current_win()
+    local edit_win
+
+    vim.cmd("vsplit")
+    local safety_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_set_current_win(host_win)
+
+    package.loaded["snacks"] = {
+      win = function(opts)
+        table.insert(temp_buffers, opts.buf)
+        edit_win = vim.api.nvim_open_win(opts.buf, true, {
+          relative = "editor",
+          row = 1,
+          col = 1,
+          width = 40,
+          height = 8,
+          style = "minimal",
+        })
+        return {
+          buf = opts.buf,
+          close = function()
+            if vim.api.nvim_win_is_valid(edit_win) then
+              vim.api.nvim_win_close(edit_win, true)
+            end
+          end,
+        }
+      end,
+    }
+
+    vim.fn.mode = function()
+      return "n"
+    end
+    vim.fn.getline = function()
+      return "echo hi"
+    end
+
+    send_to_tmux.select_target("%7")
+    send_to_tmux.send_to_tmux_edit()
+
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "echo changed" })
+    vim.cmd("wq")
+    vim.wait(100)
+
+    local host_survived = vim.api.nvim_win_is_valid(host_win)
+    local edit_closed = not vim.api.nvim_win_is_valid(edit_win)
+
+    if host_survived then
+      vim.api.nvim_set_current_win(host_win)
+      vim.api.nvim_win_close(safety_win, true)
+    else
+      vim.api.nvim_set_current_win(safety_win)
+      vim.cmd("vsplit")
+      vim.api.nvim_win_close(safety_win, true)
+    end
+
+    assert.is_true(edit_closed)
+    assert.is_true(host_survived)
   end)
 
   it("disables edit send keymaps while keeping write-to-send", function()
@@ -1069,6 +1133,9 @@ describe("send_to_tmux", function()
         },
       },
     }, send_calls)
+    vim.wait(100, function()
+      return closed
+    end)
     assert.is_true(closed)
   end)
 

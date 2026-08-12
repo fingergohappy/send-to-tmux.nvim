@@ -620,7 +620,17 @@ local function open_edit_window(text)
 
   local win
 
-  local function send_and_close()
+  local function close_edit_window()
+    if win and win.close then
+      win:close()
+    end
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+
+  ---@param defer_close? boolean
+  local function send_and_close(defer_close)
     if not vim.api.nvim_buf_is_valid(buf) then
       return
     end
@@ -633,11 +643,11 @@ local function open_edit_window(text)
     if vim.api.nvim_buf_is_valid(buf) then
       vim.bo[buf].modified = false
     end
-    if win and win.close then
-      win:close()
-    end
-    if vim.api.nvim_buf_is_valid(buf) then
-      vim.api.nvim_buf_delete(buf, { force = true })
+
+    if defer_close then
+      vim.schedule(close_edit_window)
+    else
+      close_edit_window()
     end
   end
 
@@ -652,7 +662,12 @@ local function open_edit_window(text)
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
-    callback = send_and_close,
+    callback = function()
+      -- Keep the edit window current until the write command finishes. In
+      -- particular, the quit part of :wq must close this window rather than
+      -- the host window underneath it.
+      send_and_close(true)
+    end,
   })
 
   local edit_send_key = M.config.edit_send_key
